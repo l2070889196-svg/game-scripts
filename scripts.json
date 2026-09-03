@@ -2,7 +2,7 @@
   "cfm_script": { "version": "1.0", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/cfm.sh" },
   "dra_verify": { "version": "1.0", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/verify.sh" },
   "dra_driver": { "version": "1.0", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/driver.sh" },
-  "yuyan_script": { "version": "1.002", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/yuyan.sh" },
+  "yuyan_script": { "version": "1.003", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/yuyan.sh" },
   "linyu_verify": { "version": "1.0", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/linyu_verify.sh" },
   "linyu_driver": { "version": "1.0", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/linyu_driver.sh" },
   "arena_script": { "version": "1.001", "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/arena_script.sh" },
