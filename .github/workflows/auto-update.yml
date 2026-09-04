@@ -6,79 +6,134 @@ on:
     paths:
       - '*.sh'
 
-permissions:
-  contents: write
-
 jobs:
   update-version:
     runs-on: ubuntu-latest
     if: github.actor != 'github-actions[bot]'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Detect changed scripts
-        id: detect
+      - name: Get changed .sh files
+        id: changed
         run: |
+          echo "Changed files:"
           CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '\.sh$' | tr '\n' ' ')
-          echo "Changed: $CHANGED"
           if [ -z "$CHANGED" ]; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No .sh files changed"
+            echo "files=NO_CHANGES" >> $GITHUB_OUTPUT
           else
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$CHANGED"
             echo "files=$CHANGED" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update versions
-        if: steps.detect.outputs.has_changes == 'true'
+      - name: Update versions in scripts.json
+        if: steps.changed.outputs.files != 'NO_CHANGES '
         run: |
-          declare -A MAP
-          MAP["cfm.sh"]="cfm_script"
-          MAP["verify.sh"]="dra_verify"
-          MAP["driver.sh"]="dra_driver"
-          MAP["yuyan.sh"]="yuyan_script"
-          MAP["linyu_verify.sh"]="linyu_verify"
-          MAP["linyu_driver.sh"]="linyu_driver"
-          MAP["arena_script.sh"]="arena_script"
-          MAP["arena_driver.sh"]="arena_driver"
-          MAP["gemini.sh"]="hpjy_script"
-
-          for file in ${{ steps.detect.outputs.files }}; do
-            fname=$(basename "$file")
-            key="${MAP[$fname]}"
-            [ -z "$key" ] && continue
-            echo "Updating $key ($fname)"
-
-            if jq -e "has(\"$key\")" scripts.json > /dev/null 2>&1; then
-              old=$(jq -r ".\"$key\".version" scripts.json)
-              new=$(echo "$old" | awk -F. '{OFS="."; $NF=$NF+1; print}')
-              echo "  $old -> $new"
-              jq ".\"$key\".version=\"$new\" | .\"$key\".url=\"https://raw.githubusercontent.com/${{ github.repository }}/main/$fname\"" scripts.json > tmp.json && mv tmp.json scripts.json
+          echo "Updating versions for: ${{ steps.changed.outputs.files }}"
+          
+          # 文件名到key的映射
+          declare -A FILE_TO_KEY
+          FILE_TO_KEY["cfm.sh"]="cfm_script"
+          FILE_TO_KEY["verify.sh"]="dra_verify"
+          FILE_TO_KEY["driver.sh"]="dra_driver"
+          FILE_TO_KEY["yuyan.sh"]="yuyan_script"
+          FILE_TO_KEY["linyu_verify.sh"]="linyu_verify"
+          FILE_TO_KEY["linyu_driver.sh"]="linyu_driver"
+          FILE_TO_KEY["arena_script.sh"]="arena_script"
+          FILE_TO_KEY["arena_driver.sh"]="arena_driver"
+          FILE_TO_KEY["gemini.sh"]="hpjy_script"
+          FILE_TO_KEY["LinYuKernel.Ver3.1.8.sh"]="sjxd_script"
+          FILE_TO_KEY["LinYu过电报验证.sh"]="sjxd_verify"
+          
+          # 读取当前scripts.json
+          cat scripts.json
+          
+          # 对每个变化的文件更新版本号
+          for file in ${{ steps.changed.outputs.files }}; do
+            filename=$(basename "$file")
+            key="${FILE_TO_KEY[$filename]}"
+            if [ -z "$key" ]; then
+              echo "No mapping for $filename, skipping"
+              continue
+            fi
+            echo "Updating $key ($filename)"
+            
+            # 提取当前版本号
+            current=$(python3 -c "
+import json, sys
+with open('scripts.json') as f:
+    data = json.load(f)
+key = '$key'
+if key in data:
+    print(data[key]['version'])
+else:
+    print('NOT_FOUND')
+")
+            echo "Current version: $current"
+            
+            if [ "$current" = "NOT_FOUND" ]; then
+              echo "Key $key not found in scripts.json, adding it"
+              python3 -c "
+import json
+with open('scripts.json') as f:
+    data = json.load(f)
+data['$key'] = {'version': '1.0', 'url': 'https://raw.githubusercontent.com/${{ github.repository }}/main/$filename'}
+with open('scripts.json', 'w') as f:
+    json.dump(data, f, indent=2)
+"
             else
-              echo "  Adding new key"
-              jq ". + {\"$key\": {version: \"1.0\", url: \"https://raw.githubusercontent.com/${{ github.repository }}/main/$fname\"}}" scripts.json > tmp.json && mv tmp.json scripts.json
+              # 版本号递增（最后一位+1）
+              new_version=$(python3 -c "
+v = '$current'
+parts = v.split('.')
+if len(parts) >= 2:
+    parts[-1] = str(int(parts[-1]) + 1)
+    print('.'.join(parts))
+else:
+    print(v + '1')
+")
+              echo "New version: $new_version"
+              
+              python3 -c "
+import json
+with open('scripts.json') as f:
+    data = json.load(f)
+key = '$key'
+if key in data:
+    data[key]['version'] = '$new_version'
+    data[key]['url'] = 'https://raw.githubusercontent.com/${{ github.repository }}/main/$filename'
+with open('scripts.json', 'w') as f:
+    json.dump(data, f, indent=2)
+"
             fi
           done
-          echo "=== Result ==="
+          
+          echo "Updated scripts.json:"
           cat scripts.json
 
-      - name: Commit and push
-        if: steps.detect.outputs.has_changes == 'true'
+      - name: Commit and push changes
+        if: steps.changed.outputs.files != 'NO_CHANGES '
         run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add scripts.json
           git commit -m "auto: update script versions [skip ci]" || echo "No changes to commit"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
+          git push
 
-      - name: Purge CDN
-        if: steps.detect.outputs.has_changes == 'true'
+      - name: Purge jsdelivr CDN cache
+        if: steps.changed.outputs.files != 'NO_CHANGES '
         run: |
-          for file in ${{ steps.detect.outputs.files }}; do
-            fname=$(basename "$file")
-            echo "Purging $fname"
-            curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/$fname"
+          echo "Purging jsdelivr CDN cache..."
+          for file in ${{ steps.changed.outputs.files }}; do
+            filename=$(basename "$file")
+            url="https://purge.jsdelivr.net/gh/${{ github.repository }}@main/$filename"
+            echo "Purging: $url"
+            curl -s "$url" || echo "Purge failed for $filename"
           done
-          curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/scripts.json"
-          echo "Done"
+          # 同时刷新scripts.json
+          curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/scripts.json" || echo "Purge failed for scripts.json"
+          echo "CDN cache purged"
