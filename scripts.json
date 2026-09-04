@@ -35,4 +35,12 @@
     "version": "1.3",
     "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts/main/gemini.sh"
   }
+  "sjxd_script": {
+    "version": "1.0", 
+    "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts@main/LinYuKernel.Ver3.1.8.sh"
+  },
+  "sjxd_verify": { 
+    "version": "1.0", 
+    "url": "https://raw.githubusercontent.com/l2070889196-svg/game-scripts@main/LinYu过电报验证.sh" 
+  },
 }
