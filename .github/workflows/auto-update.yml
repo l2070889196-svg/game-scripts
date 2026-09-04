@@ -1,11 +1,9 @@
 name: Auto Update Script Versions
-
 on:
   push:
     branches: [ main ]
     paths:
       - '*.sh'
-
 jobs:
   update-version:
     runs-on: ubuntu-latest
@@ -14,28 +12,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get changed .sh files
+      - name: Detect changed scripts
         id: changed
         run: |
-          echo "Changed files:"
-          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep '\.sh$' | tr '\n' ' ')
+          echo "Changed files in this commit:"
+          CHANGED=$(git show --name-only --pretty="" HEAD | grep '\.sh$' | tr '\n' ' ')
+          echo "Raw changed: $CHANGED"
           if [ -z "$CHANGED" ]; then
-            echo "No .sh files changed"
+            echo "No .sh files changed in this commit"
             echo "files=NO_CHANGES" >> $GITHUB_OUTPUT
           else
             echo "$CHANGED"
             echo "files=$CHANGED" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update versions in scripts.json
-        if: steps.changed.outputs.files != 'NO_CHANGES '
+      - name: Update versions
+        if: steps.changed.outputs.files != 'NO_CHANGES'
         run: |
           echo "Updating versions for: ${{ steps.changed.outputs.files }}"
           
-          # 文件名到key的映射
           declare -A FILE_TO_KEY
           FILE_TO_KEY["cfm.sh"]="cfm_script"
           FILE_TO_KEY["verify.sh"]="dra_verify"
@@ -49,10 +47,14 @@ jobs:
           FILE_TO_KEY["LinYuKernel.Ver3.1.8.sh"]="sjxd_script"
           FILE_TO_KEY["LinYu过电报验证.sh"]="sjxd_verify"
           
-          # 读取当前scripts.json
+          if [ ! -f scripts.json ]; then
+            echo "scripts.json not found, creating empty one"
+            echo '{}' > scripts.json
+          fi
+          
+          echo "Current scripts.json:"
           cat scripts.json
           
-          # 对每个变化的文件更新版本号
           for file in ${{ steps.changed.outputs.files }}; do
             filename=$(basename "$file")
             key="${FILE_TO_KEY[$filename]}"
@@ -60,11 +62,14 @@ jobs:
               echo "No mapping for $filename, skipping"
               continue
             fi
-            echo "Updating $key ($filename)"
+            if [ ! -f "$filename" ]; then
+              echo "File $filename was deleted, skipping version update"
+              continue
+            fi
+            echo "Processing $key ($filename)"
             
-            # 提取当前版本号
             current=$(python3 -c "
-import json, sys
+import json
 with open('scripts.json') as f:
     data = json.load(f)
 key = '$key'
@@ -76,28 +81,26 @@ else:
             echo "Current version: $current"
             
             if [ "$current" = "NOT_FOUND" ]; then
-              echo "Key $key not found in scripts.json, adding it"
+              echo "Adding new key $key with version 1.0"
               python3 -c "
 import json
 with open('scripts.json') as f:
     data = json.load(f)
 data['$key'] = {'version': '1.0', 'url': 'https://raw.githubusercontent.com/${{ github.repository }}/main/$filename'}
 with open('scripts.json', 'w') as f:
-    json.dump(data, f, indent=2)
+    json.dump(data, f, indent=2, ensure_ascii=False)
 "
             else
-              # 版本号递增（最后一位+1）
               new_version=$(python3 -c "
 v = '$current'
 parts = v.split('.')
-if len(parts) >= 2:
+if len(parts) >= 2 and parts[-1].isdigit():
     parts[-1] = str(int(parts[-1]) + 1)
     print('.'.join(parts))
 else:
-    print(v + '1')
+    print('1.1')
 ")
               echo "New version: $new_version"
-              
               python3 -c "
 import json
 with open('scripts.json') as f:
@@ -107,7 +110,7 @@ if key in data:
     data[key]['version'] = '$new_version'
     data[key]['url'] = 'https://raw.githubusercontent.com/${{ github.repository }}/main/$filename'
 with open('scripts.json', 'w') as f:
-    json.dump(data, f, indent=2)
+    json.dump(data, f, indent=2, ensure_ascii=False)
 "
             fi
           done
@@ -115,25 +118,23 @@ with open('scripts.json', 'w') as f:
           echo "Updated scripts.json:"
           cat scripts.json
 
-      - name: Commit and push changes
-        if: steps.changed.outputs.files != 'NO_CHANGES '
+      - name: Commit and push
+        if: steps.changed.outputs.files != 'NO_CHANGES'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add scripts.json
-          git commit -m "auto: update script versions [skip ci]" || echo "No changes to commit"
+          git diff --cached --quiet scripts.json || git commit -m "auto: update script versions [skip ci]"
           git push
 
-      - name: Purge jsdelivr CDN cache
-        if: steps.changed.outputs.files != 'NO_CHANGES '
+      - name: Purge CDN cache
+        if: steps.changed.outputs.files != 'NO_CHANGES'
         run: |
           echo "Purging jsdelivr CDN cache..."
           for file in ${{ steps.changed.outputs.files }}; do
             filename=$(basename "$file")
-            url="https://purge.jsdelivr.net/gh/${{ github.repository }}@main/$filename"
-            echo "Purging: $url"
-            curl -s "$url" || echo "Purge failed for $filename"
+            echo "Purging: $filename"
+            curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/$filename" || echo "Purge failed for $filename"
           done
-          # 同时刷新scripts.json
           curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/scripts.json" || echo "Purge failed for scripts.json"
           echo "CDN cache purged"
